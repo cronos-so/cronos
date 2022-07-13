@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  release-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -28,6 +28,7 @@ jobs:
           override: true
           profile: minimal
           components: rustfmt
+          target: x86_64-unknown-linux-gnu
 
       - name: Check Solana version
         run: |
@@ -47,8 +48,81 @@ jobs:
       - name: install libudev-dev
         run: sudo apt-get install libudev-dev
 
-      - name: Build release tarball
-        run: ./scripts/ci/create-tarball.sh
+      # - name: Build release tarball
+      #   run: ./scripts/ci/create-tarball.sh
+
+      - name: Build Linux Binary
+        run: cd cli && cargo build --release --locked && cd ../ && tar cvf cronos-cli-release-$CI_TAG-x86_64-unknown-linux-gnu.tar target/release/cronos && bzip2 cronos-cli-release-$CI_TAG-x86_64-unknown-linux-gnu.tar
+        env:
+          CI_TAG: ${{ env.CI_TAG }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            cronos-geyser-plugin-release-*
+            cronos-cli-release-*
+
+  release-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          override: true
+
+      - name: Check Solana version
+        run: |
+          echo "CI_TAG=${$env:GITHUB_REF#refs/*/}" >> "$env:GITHUB_ENV"
+
+      - name: Build Windows Binary
+        run: cd cli && cargo build --release --locked && cd ../ && tar cvf cronos-cli-release-$CI_TAG-x86_64-windows-msvc.tar target/release/cronos.exe && bzip2 cronos-cli-release-$CI_TAG-x86_64-windows-msvc.tar
+        env:
+          CI_TAG: ${{ env.CI_TAG }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            cronos-cli-release-*
+
+  release-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set env vars
+        run: |
+          source scripts/ci/rust-version.sh
+          echo "RUST_STABLE=$rust_stable" | tee -a $GITHUB_ENV
+
+      - name: Check Solana version
+        run: |
+          echo "CI_TAG=${GITHUB_REF#refs/*/}" >> "$GITHUB_ENV"
+          echo "CI_OS_NAME=linux" >> "$GITHUB_ENV"
+
+          SOLANA_VERSION="$(./scripts/ci/solana-version.sh)"
+          SOLANA_VERSION="v${SOLANA_VERSION#=}"
+          echo "SOLANA_VERSION=$SOLANA_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-apple-darwin
+          default: true
+          override: true
+
+      - name: Build MacOS Binary
+        run: cd cli && cargo build --release --locked && cd ../ && tar cvf cronos-cli-release-$CI_TAG-x86_64-apple-darwin.tar target/release/cronos && bzip2 cronos-cli-release-$CI_TAG-x86_64-apple-darwin.tar
+        env:
+          CI_TAG: ${{ env.CI_TAG }}
 
       - name: Release
         uses: softprops/action-gh-release@v1
@@ -56,7 +130,8 @@ jobs:
         with:
           body: |
             cronos-geyser-plugin ${{ env.CI_TAG }}
+            cronos-cli-release ${{ env.CI_TAG }}
             solana ${{ env.SOLANA_VERSION }}
             rust ${{ env.RUST_STABLE }}
           files: |
-            cronos-geyser-plugin-release-*
+            cronos-cli-release-*
